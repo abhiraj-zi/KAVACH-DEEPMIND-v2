@@ -187,6 +187,24 @@
         #eventLog::-webkit-scrollbar-track { background: transparent; }
 
         button { transition: transform 0.12s ease, box-shadow 0.25s ease, background 0.2s ease; }
+
+        /* --- Tactical map --- */
+        #routePath {
+            stroke-dasharray: 400;
+            stroke-dashoffset: 400;
+            filter: drop-shadow(0 0 3px rgba(0,230,118,0.5));
+        }
+        .map-ring { animation: mapPing 3s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+        .map-ring.d2 { animation-delay: 1s; }
+        .map-ring.d3 { animation-delay: 2s; }
+        @keyframes mapPing {
+            0%   { r: 4px;  opacity: 0.55; }
+            100% { r: 46px; opacity: 0; }
+        }
+        .map-dot-travel { offset-path: path('M64,116 C 150,96 200,66 268,40'); animation: travel 3.2s linear infinite; }
+        @keyframes travel { to { offset-distance: 100%; } }
+        .pin-you   { animation: pinFloat 2.6s ease-in-out infinite; }
+        @keyframes pinFloat { 50% { transform: translate(-50%,-56%); } }
     </style>
 </head>
 <body class="flex flex-col relative" id="appBody">
@@ -292,6 +310,56 @@
             </div>
             <div class="flex items-center gap-2 pt-1" id="agentRoster">
                 <!-- agent chips injected -->
+            </div>
+        </div>
+
+        <!-- Live Tactical Map -->
+        <div class="relative rounded-2xl overflow-hidden border border-borderGray bg-[#0C1017]" style="height:150px" id="mapCard">
+            <svg viewBox="0 0 320 150" preserveAspectRatio="xMidYMid slice" class="absolute inset-0 w-full h-full">
+                <defs>
+                    <pattern id="mapGrid" width="26" height="26" patternUnits="userSpaceOnUse">
+                        <path d="M26 0H0V26" fill="none" stroke="rgba(120,144,156,0.10)" stroke-width="1"/>
+                    </pattern>
+                    <linearGradient id="routeGrad" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%"  stop-color="#00E676"/>
+                        <stop offset="100%" stop-color="#FFA000"/>
+                    </linearGradient>
+                </defs>
+                <rect width="320" height="150" fill="url(#mapGrid)"/>
+                <!-- radar rings around user -->
+                <circle class="map-ring"    cx="64" cy="116" r="4" fill="none" stroke="rgba(255,51,102,0.5)" stroke-width="1.5"/>
+                <circle class="map-ring d2" cx="64" cy="116" r="4" fill="none" stroke="rgba(255,51,102,0.4)" stroke-width="1.5"/>
+                <circle class="map-ring d3" cx="64" cy="116" r="4" fill="none" stroke="rgba(255,51,102,0.3)" stroke-width="1.5"/>
+                <!-- route -->
+                <path id="routePath" d="M64,116 C 150,96 200,66 268,40" fill="none" stroke="url(#routeGrad)" stroke-width="2.5" stroke-linecap="round"/>
+                <circle class="map-dot-travel" r="2.5" fill="#ECEFF1"/>
+            </svg>
+
+            <!-- overlay pins -->
+            <div class="pin-you absolute" style="left:20%; top:77.3%; transform:translate(-50%,-50%)">
+                <span class="live-dot block"></span>
+            </div>
+            <div class="absolute text-[8px] font-mono text-mutedSlate" style="left:20%; top:88%; transform:translate(-50%,0)">YOU</div>
+
+            <div class="absolute" style="left:83.75%; top:26.6%; transform:translate(-50%,-50%)">
+                <div class="w-7 h-7 rounded-full bg-crimsonRed/90 border border-white/40 flex items-center justify-center shadow-[0_0_14px_rgba(255,51,102,0.6)]">
+                    <span class="material-icons text-white text-sm">local_police</span>
+                </div>
+            </div>
+
+            <!-- HUD chrome -->
+            <div class="absolute top-2 left-3 flex items-center gap-1.5 text-[9px] font-mono text-crimsonRed font-bold">
+                <span class="live-dot" style="background:var(--crimson)"></span> LIVE ROUTE
+            </div>
+            <div class="absolute bottom-2 left-3 right-3 flex items-end justify-between gap-2">
+                <div class="min-w-0">
+                    <p class="text-[8px] text-mutedSlate uppercase tracking-wider">Safe Zone</p>
+                    <p class="text-[11px] font-bold text-iceWhite truncate" id="mapZoneName">Locating…</p>
+                </div>
+                <div class="text-right shrink-0 bg-black/50 backdrop-blur px-2 py-1 rounded-md border border-borderGray hidden" id="mapEtaWrap">
+                    <p class="text-[8px] text-mutedSlate uppercase tracking-wider">ETA</p>
+                    <p class="text-[11px] font-mono font-bold text-safetyGreen" id="mapEta">—</p>
+                </div>
             </div>
         </div>
 

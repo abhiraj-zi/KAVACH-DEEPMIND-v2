@@ -13,6 +13,7 @@ cap and wall-clock timeout, and any failure degrades to a deterministic result
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -38,12 +39,38 @@ class ActionResult:
     maps_url: str
     safe_zone: str
     summary: str
+    eta: Optional[str] = None
     steps: list[str] = field(default_factory=list)
 
 
 def _maps_search_url(lat: float, lng: float, query: str = "police station") -> str:
     q = query.replace(" ", "+")
     return f"https://www.google.com/maps/search/{q}/@{lat},{lng},15z"
+
+
+def _parse_safe_zone(
+    text: str, fallback: str = "Nearest Police Station"
+) -> tuple[str, Optional[str]]:
+    """Pull the resolved police-station name + ETA out of the model's closing text."""
+    if not text:
+        return fallback, None
+
+    # ETA: "ETA 5 mins", "5 minute", "about 7 min"
+    eta: Optional[str] = None
+    m = re.search(r"\b(\d+)\s*(min(?:ute)?s?|hours?|hrs?)\b", text, re.I)
+    if m:
+        eta = f"{m.group(1)} {m.group(2)}"
+
+    # Name: the first "... Police Station" (or "... Thana"/"Chowki") phrase.
+    name = fallback
+    m2 = re.search(
+        r"([A-Z][A-Za-z0-9.&'\-]*(?:\s+[A-Z][A-Za-z0-9.&'\-]*){0,4}"
+        r"\s+(?:Police\s+Station|Thana|Chowki))",
+        text,
+    )
+    if m2:
+        name = re.sub(r"\s+", " ", m2.group(1)).strip()
+    return name, eta
 
 
 async def run_action_agent(
@@ -185,9 +212,12 @@ async def _drive_browser(
             contents.append(types.Content(role="user", parts=response_parts))
 
         maps_url = page.url or fallback_url
+        safe_zone, eta = _parse_safe_zone(final_text, fallback=safe_zone)
+        eta_txt = f" · ETA {eta}" if eta else ""
         await bus.emit(
             "Action", AGENT_ACTION,
-            f"Route locked to {safe_zone}. Live map ready.", status="active",
+            f"Route locked to {safe_zone}{eta_txt}. Live map ready.",
+            status="active",
         )
         await context.close()
         await browser.close()
@@ -198,6 +228,7 @@ async def _drive_browser(
         maps_url=maps_url if maps_url.startswith("http") else fallback_url,
         safe_zone=safe_zone,
         summary=final_text or "Directions to nearest police station acquired.",
+        eta=eta,
         steps=steps,
     )
 

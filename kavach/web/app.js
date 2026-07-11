@@ -18,6 +18,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const threatMeter = document.getElementById('threatMeter');
     const threatLabel = document.getElementById('threatLabel');
     const agentRoster = document.getElementById('agentRoster');
+    const routePath = document.getElementById('routePath');
+    const mapZoneName = document.getElementById('mapZoneName');
+    const mapEta = document.getElementById('mapEta');
+    const mapEtaWrap = document.getElementById('mapEtaWrap');
 
     // State
     let isOffline = false;
@@ -178,6 +182,57 @@ document.addEventListener('DOMContentLoaded', () => {
         threatLabel.textContent = label;
     }
 
+    // Threat level driven live by Omni events
+    const THREAT_STYLE = {
+        HIGH:   { pct: 82, grad: 'from-cyberOrange to-crimsonRed',  color: 'crimsonRed'  },
+        MEDIUM: { pct: 52, grad: 'from-safetyGreen to-cyberOrange', color: 'cyberOrange' },
+        LOW:    { pct: 26, grad: 'from-safetyGreen to-safetyGreen', color: 'safetyGreen' },
+    };
+    function applyThreat(level, conf) {
+        const s = THREAT_STYLE[level];
+        if (!s) return;
+        threatMeter.style.width = s.pct + '%';
+        threatMeter.className = 'meter-fill h-full rounded-full bg-gradient-to-r ' + s.grad;
+        threatLabel.textContent = conf ? `${level} · ${conf}%` : level;
+        threatLabel.className = 'text-[10px] font-mono font-bold text-' + s.color;
+    }
+
+    // --- Tactical map control ---
+    function initMap() {
+        mapZoneName.textContent = 'Locating…';
+        mapEtaWrap.classList.add('hidden');
+        routePath.style.transition = 'none';
+        routePath.style.strokeDashoffset = 400;
+    }
+    function drawRoute() {
+        const len = routePath.getTotalLength ? routePath.getTotalLength() : 400;
+        routePath.style.strokeDasharray = len;
+        routePath.style.strokeDashoffset = len;
+        void routePath.getBoundingClientRect();       // force reflow
+        routePath.style.transition = 'stroke-dashoffset 1.5s cubic-bezier(0.22,1,0.36,1)';
+        routePath.style.strokeDashoffset = 0;
+    }
+    function setSafeZone(name, eta) {
+        if (name) mapZoneName.textContent = name;
+        if (eta) {
+            mapEta.textContent = eta;
+            mapEtaWrap.classList.remove('hidden');
+        }
+    }
+
+    // Parse live signals out of streamed messages (no new SSE fields needed)
+    function parseSignals(agent, message) {
+        const t = message.match(/threat\s+(HIGH|MEDIUM|LOW)\s*\((\d+)%/i);
+        if (t) applyThreat(t[1].toUpperCase(), t[2]);
+
+        const r = message.match(/Route locked to\s+([^·.]+)/i);
+        if (r) {
+            const eta = (message.match(/ETA\s+([^.·]+)/i) || [])[1];
+            setSafeZone(r[1].trim(), eta ? eta.trim() : null);
+            drawRoute();
+        }
+    }
+
     async function triggerCodeRed() {
         isDefenseActive = true;
         swapViews(hubView, activeView);
@@ -185,8 +240,8 @@ document.addEventListener('DOMContentLoaded', () => {
         eventLog.innerHTML = '';
         buildRoster();
         startTimer();
+        initMap();
         setThreat(8, 'ASSESSING…');
-        setTimeout(() => setThreat(78, 'HIGH'), 1400);
 
         logEvent('System', 'Code Red Triggered.', isOffline ? 'cyberOrange' : 'crimsonRed');
 
@@ -275,6 +330,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const meta = AGENTS[agent] || {};
         const useIcon = icon || meta.icon || 'shield';
         pingRoster(agent);
+        parseSignals(agent, message);
 
         const iconColor = colorClass === 'crimsonRed' ? 'text-crimsonRed' :
                           colorClass === 'cyberOrange' ? 'text-cyberOrange' :
@@ -336,12 +392,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // Mock Sequence for purely local demo
     function runMockSequence() {
         const events = [
-            { agent: "Antigravity", message: "Spawning Action and Comms agents in parallel.", icon: "hub", color: "iceWhite", delay: 1000 },
-            { agent: "Computer Use", message: "Acquiring GPS lock. Opening Maps.", icon: "explore", color: "iceWhite", delay: 2500 },
-            { agent: "Live Voice", message: "Calling emergency contact (Teammate SOS)...", icon: "phone_in_talk", color: "safetyGreen", delay: 4000 },
-            { agent: "Computer Use", message: "Routing to CVS 24/7 Pharmacy. ETA 4 mins.", icon: "directions_run", color: "iceWhite", delay: 5500 },
-            { agent: "Omni", message: "Ambient audio assessed: elevated threat. Escalating.", icon: "info", color: "cyberOrange", delay: 7000 },
-            { agent: "Live Voice", message: "Contact answered. Patching in live microphone...", icon: "record_voice_over", color: "safetyGreen", delay: 8500 }
+            { agent: "Antigravity", message: "Spawning Action, Comms and Verification agents in parallel.", icon: "hub", color: "iceWhite", delay: 1000 },
+            { agent: "Omni", message: "Threat HIGH (95% conf) — user isolated; autonomous response engaged.", icon: "info", color: "cyberOrange", delay: 2200 },
+            { agent: "Computer Use", message: "Acquiring GPS lock. Opening Maps.", icon: "explore", color: "iceWhite", delay: 3200 },
+            { agent: "Live Voice", message: "Calling emergency contact (Teammate SOS)...", icon: "phone_in_talk", color: "safetyGreen", delay: 4400 },
+            { agent: "Computer Use", message: "Route locked to Cubbon Park Police Station · ETA 5 min. Live map ready.", icon: "directions_run", color: "iceWhite", delay: 6000 },
+            { agent: "Live Voice", message: "Contact answered. Patching in live microphone...", icon: "record_voice_over", color: "safetyGreen", delay: 7600 },
+            { agent: "Antigravity", message: "Response coordinated — route locked, contacts alerted. Standing by, monitoring.", icon: "hub", color: "iceWhite", delay: 9000 },
+            { agent: "Omni", message: "Ambient re-scan — threat MEDIUM (55% conf) — de-escalating; approach underway.", icon: "info", color: "cyberOrange", delay: 12000 },
+            { agent: "Omni", message: "Ambient re-scan — threat LOW (32% conf) — nearing safe zone. Contact en route.", icon: "info", color: "safetyGreen", delay: 16000 }
         ];
         events.forEach(ev => {
             setTimeout(() => {

@@ -1,3 +1,0 @@
-[     113ms] [WARNING] cdn.tailwindcss.com should not be used in production. To use Tailwind CSS in production, install it as a PostCSS plugin or use the Tailwind CLI: https://tailwindcss.com/docs/installation @ https://cdn.tailwindcss.com/:63
-[    3270ms] [ERROR] Failed to load resource: the server responded with a status of 501 (Unsupported method ('POST')) @ http://localhost:8777/trigger:0
-[    3272ms] [ERROR] Failed to load resource: the server responded with a status of 404 (File not found) @ http://localhost:8777/session/1/events:0
