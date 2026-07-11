@@ -1,0 +1,6 @@
+{
+  "name": "Kavach",
+  "description": "A Zero-UI Autonomous Safety Companion featuring ambient phrase monitoring, check-in flows, silent whisper navigation, and Gemini Scribe incident auditing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

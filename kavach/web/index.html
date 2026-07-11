@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kavach - Zero-UI Safety System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        slateBlack: '#0A0C10',
+                        deepSlate: '#131720',
+                        surfaceGray: '#1E2430',
+                        borderGray: '#2C3545',
+                        crimsonRed: '#FF3366',
+                        safetyGreen: '#00E676',
+                        cyberOrange: '#FFA000',
+                        iceWhite: '#ECEFF1',
+                        mutedSlate: '#78909C',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;700&display=swap');
+
+        :root {
+            --crimson: #FF3366;
+            --green: #00E676;
+            --orange: #FFA000;
+        }
+
+        body {
+            background: #0A0C10;
+            color: #ECEFF1;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+            height: 100vh;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* Ambient animated backdrop — subtle depth, no distraction */
+        #appBody::before {
+            content: '';
+            position: fixed;
+            inset: -30%;
+            z-index: -2;
+            background:
+                radial-gradient(40% 40% at 20% 15%, rgba(255,51,102,0.10), transparent 70%),
+                radial-gradient(45% 45% at 85% 85%, rgba(0,230,118,0.07), transparent 70%),
+                radial-gradient(35% 35% at 70% 25%, rgba(255,160,0,0.05), transparent 70%);
+            animation: drift 18s ease-in-out infinite alternate;
+        }
+        #appBody::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            z-index: -1;
+            background-image:
+                linear-gradient(rgba(120,144,156,0.035) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(120,144,156,0.035) 1px, transparent 1px);
+            background-size: 44px 44px;
+            mask-image: radial-gradient(circle at 50% 40%, #000 30%, transparent 85%);
+            -webkit-mask-image: radial-gradient(circle at 50% 40%, #000 30%, transparent 85%);
+        }
+        @keyframes drift {
+            0%   { transform: translate(0,0) scale(1); }
+            100% { transform: translate(2%, -2%) scale(1.08); }
+        }
+
+        /* --- View transitions --- */
+        .view-enter { animation: viewIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+        .view-exit  { animation: viewOut 0.32s cubic-bezier(0.4, 0, 1, 1) both; }
+        @keyframes viewIn {
+            from { opacity: 0; transform: translateY(14px) scale(0.985); filter: blur(6px); }
+            to   { opacity: 1; transform: translateY(0)    scale(1);     filter: blur(0); }
+        }
+        @keyframes viewOut {
+            from { opacity: 1; transform: scale(1); }
+            to   { opacity: 0; transform: scale(1.02); }
+        }
+
+        /* --- Shield core --- */
+        .spin-slow    { animation: spin 14s linear infinite; }
+        .spin-rev     { animation: spin 9s linear infinite reverse; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .breathe { animation: breathe 3.4s ease-in-out infinite; }
+        @keyframes breathe {
+            0%,100% { box-shadow: 0 0 0 0 rgba(255,51,102,0.0), inset 0 0 18px rgba(255,51,102,0.25); }
+            50%     { box-shadow: 0 0 34px 4px rgba(255,51,102,0.30), inset 0 0 26px rgba(255,51,102,0.45); }
+        }
+
+        .pulse-ring { animation: pulse 1.5s infinite ease-out; }
+        @keyframes pulse {
+            0%   { transform: scale(0.8); opacity: 0.5; }
+            100% { transform: scale(1.6); opacity: 0; }
+        }
+
+        /* Code Red trigger — layered expanding rings */
+        .trigger-rings::before,
+        .trigger-rings::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 9999px;
+            border: 2px solid rgba(255,51,102,0.5);
+            animation: emit 2.6s ease-out infinite;
+        }
+        .trigger-rings::after { animation-delay: 1.3s; }
+        @keyframes emit {
+            0%   { transform: scale(1);   opacity: 0.7; }
+            100% { transform: scale(1.9); opacity: 0; }
+        }
+
+        /* Live status dot */
+        .live-dot {
+            width: 7px; height: 7px; border-radius: 9999px;
+            background: var(--green);
+            box-shadow: 0 0 0 0 rgba(0,230,118,0.6);
+            animation: liveblink 1.6s ease-out infinite;
+        }
+        @keyframes liveblink {
+            0%   { box-shadow: 0 0 0 0 rgba(0,230,118,0.55); }
+            70%  { box-shadow: 0 0 0 7px rgba(0,230,118,0); }
+            100% { box-shadow: 0 0 0 0 rgba(0,230,118,0); }
+        }
+
+        /* Event card entrance */
+        .event-card {
+            animation: cardIn 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+        @keyframes cardIn {
+            from { opacity: 0; transform: translateX(-12px) scale(0.98); }
+            to   { opacity: 1; transform: translateX(0)      scale(1); }
+        }
+        .event-card .agent-avatar { animation: popAvatar 0.5s cubic-bezier(0.34,1.56,0.64,1) 0.06s both; }
+        @keyframes popAvatar { from { transform: scale(0); } to { transform: scale(1); } }
+
+        /* Blinking stream caret while "typing" */
+        .caret::after {
+            content: '▌';
+            margin-left: 1px;
+            color: var(--crimson);
+            animation: caret 0.9s steps(2) infinite;
+        }
+        @keyframes caret { 50% { opacity: 0; } }
+
+        /* Threat meter fill */
+        .meter-fill { transition: width 0.9s cubic-bezier(0.22,1,0.36,1); }
+
+        /* Dead screen (Dark Survival) */
+        .dead-screen { background: black !important; }
+        .dead-screen > *:not(.overlay-hint) { display: none !important; }
+        .dead-screen .overlay-hint {
+            display: flex !important;
+            position: fixed;
+            inset: 0;
+            justify-content: center;
+            align-items: center;
+            color: rgba(255,255,255,0.06);
+            font-size: 0.75rem;
+            z-index: 50;
+            animation: faintPulse 3s ease-in-out infinite;
+        }
+        @keyframes faintPulse { 50% { color: rgba(255,255,255,0.14); } }
+
+        .radar-sweep {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            background: conic-gradient(from 0deg, rgba(255,51,102,0) 70%, rgba(255,51,102,0.28) 100%);
+            animation: spin 2s linear infinite;
+        }
+
+        /* Custom scrollbar for the event log */
+        #eventLog::-webkit-scrollbar { width: 5px; }
+        #eventLog::-webkit-scrollbar-thumb { background: #2C3545; border-radius: 9999px; }
+        #eventLog::-webkit-scrollbar-track { background: transparent; }
+
+        button { transition: transform 0.12s ease, box-shadow 0.25s ease, background 0.2s ease; }
+    </style>
+</head>
+<body class="flex flex-col relative" id="appBody">
+
+    <!-- Top status bar -->
+    <div class="absolute top-4 left-0 right-0 z-40 flex items-center justify-between px-5">
+        <div class="flex items-center gap-2 text-[11px] font-mono text-mutedSlate">
+            <span class="live-dot" id="netDot"></span>
+            <span id="netStatus">SECURE LINK</span>
+            <span class="text-borderGray">·</span>
+            <span id="clock">--:--:--</span>
+        </div>
+        <div class="flex items-center gap-3">
+            <span id="modeLabel" class="text-xs font-bold text-safetyGreen tracking-wider">GHOST OPERATOR (ON)</span>
+            <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="modeToggle" class="sr-only peer">
+                <div class="w-11 h-6 bg-deepSlate peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-iceWhite after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyberOrange border border-borderGray"></div>
+            </label>
+        </div>
+    </div>
+
+    <!-- MAIN HUB VIEW -->
+    <div id="hubView" class="flex flex-col h-full px-6 pt-16 pb-8 gap-6">
+        <!-- Header -->
+        <div class="flex flex-col items-center justify-center pt-6">
+            <div class="relative w-32 h-32 flex items-center justify-center mb-5">
+                <!-- Outer Dashed Ring -->
+                <div class="absolute inset-0 rounded-full border border-dashed border-borderGray spin-slow"></div>
+                <!-- Middle Ring -->
+                <div class="absolute inset-2 rounded-full border border-surfaceGray spin-rev"></div>
+                <!-- Inner Core -->
+                <div class="absolute inset-6 rounded-full bg-deepSlate border border-borderGray flex items-center justify-center breathe">
+                    <span class="material-icons text-crimsonRed text-4xl">shield</span>
+                </div>
+            </div>
+            <h1 class="text-3xl font-extrabold tracking-[0.3em] text-iceWhite">KAVACH</h1>
+            <p class="text-mutedSlate text-sm tracking-wide mt-2">AUTONOMOUS SAFETY COMPANION</p>
+            <div class="flex items-center gap-2 mt-3 text-[10px] font-mono text-safetyGreen/80">
+                <span class="live-dot"></span>
+                <span>ALL SYSTEMS NOMINAL · 4 AGENTS STANDING BY</span>
+            </div>
+        </div>
+
+        <!-- Safe Zone -->
+        <div class="bg-deepSlate/80 backdrop-blur border border-borderGray rounded-2xl p-5 flex items-center gap-4">
+            <div class="bg-surfaceGray p-3 rounded-xl border border-borderGray">
+                <span class="material-icons text-safetyGreen">place</span>
+            </div>
+            <div class="flex-1">
+                <p class="text-xs text-mutedSlate uppercase tracking-wider mb-1">Nearest Safe Zone</p>
+                <p class="text-sm font-semibold text-iceWhite" id="safeZoneText">CVS 24/7 Pharmacy (0.2 mi)</p>
+            </div>
+            <span class="material-icons text-mutedSlate text-lg">chevron_right</span>
+        </div>
+
+        <!-- Trigger Button -->
+        <div class="flex-1 flex items-center justify-center">
+            <div class="relative flex items-center justify-center">
+                <div class="trigger-rings absolute w-32 h-32"></div>
+                <button id="triggerBtn" class="relative group w-32 h-32 rounded-full bg-crimsonRed text-iceWhite font-bold shadow-[0_0_40px_rgba(255,51,102,0.4)] flex flex-col items-center justify-center hover:scale-105 active:scale-95">
+                    <span class="material-icons text-3xl mb-1">warning</span>
+                    <span class="tracking-widest text-sm">CODE RED</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Story Note -->
+        <div class="text-center text-xs text-mutedSlate">
+            <p>Demo Trigger: Press Button · Triple-tap · 3× Volume key</p>
+            <p class="mt-1">Story Safeword: <span class="text-iceWhite/70 font-mono">"Battery at 2 percent"</span></p>
+        </div>
+    </div>
+
+    <!-- ACTIVE SHIELD (GHOST / DARK SURVIVAL) VIEW -->
+    <div id="activeView" class="hidden flex-col h-full px-6 pt-16 pb-6 gap-4">
+        <!-- HUD Header -->
+        <div class="flex items-start gap-4">
+            <div class="relative w-14 h-14 flex items-center justify-center shrink-0">
+                <div class="absolute inset-0 bg-crimsonRed/20 rounded-full pulse-ring"></div>
+                <div class="absolute inset-0 rounded-full radar-sweep"></div>
+                <div class="absolute inset-1 rounded-full bg-crimsonRed border border-red-500 flex items-center justify-center z-10">
+                    <span class="material-icons text-white text-xl">gpp_bad</span>
+                </div>
+            </div>
+            <div class="flex-1 min-w-0">
+                <h2 class="text-base font-black text-crimsonRed tracking-wide leading-tight" id="activeTitle">GHOST OPERATOR ENGAGED</h2>
+                <p class="text-xs font-bold text-mutedSlate" id="activeSubtitle">AUTONOMOUS ORCHESTRATION</p>
+            </div>
+            <div class="text-right shrink-0">
+                <p class="text-[10px] text-mutedSlate uppercase tracking-wider">Elapsed</p>
+                <p class="text-lg font-mono font-bold text-iceWhite" id="incidentTimer">00:00</p>
+            </div>
+        </div>
+
+        <!-- Threat meter + agent roster -->
+        <div class="bg-deepSlate/80 border border-borderGray rounded-xl p-3 flex flex-col gap-3">
+            <div class="flex items-center justify-between">
+                <span class="text-[10px] font-bold text-mutedSlate uppercase tracking-wider">Threat Level</span>
+                <span class="text-[10px] font-mono font-bold text-crimsonRed" id="threatLabel">ASSESSING…</span>
+            </div>
+            <div class="h-1.5 rounded-full bg-surfaceGray overflow-hidden">
+                <div class="meter-fill h-full rounded-full bg-gradient-to-r from-cyberOrange to-crimsonRed" id="threatMeter" style="width:8%"></div>
+            </div>
+            <div class="flex items-center gap-2 pt-1" id="agentRoster">
+                <!-- agent chips injected -->
+            </div>
+        </div>
+
+        <!-- Event Log -->
+        <div class="flex-1 bg-deepSlate/60 border border-borderGray rounded-2xl p-4 overflow-y-auto flex flex-col gap-3 font-mono text-xs" id="eventLog">
+            <!-- Events injected here -->
+        </div>
+
+        <!-- Resolve Button -->
+        <button id="resolveBtn" class="w-full bg-surfaceGray border border-borderGray rounded-xl py-4 flex items-center justify-center gap-2 text-iceWhite font-bold uppercase tracking-widest hover:bg-borderGray">
+            <span class="material-icons">verified_user</span>
+            Resolve Incident
+        </button>
+    </div>
+
+    <!-- Dead Screen Overlay Hint -->
+    <div class="overlay-hint hidden" id="deadScreenHint">
+        Double tap anywhere to reveal Tactical HUD (or restore network)
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

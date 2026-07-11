@@ -1,0 +1,10 @@
+# Project Kavach — agentic backend
+google-genai>=1.0.0          # Gemini Flash + Computer Use
+google-adk>=0.3.0            # Agent Development Kit (orchestration)
+fastapi>=0.115.0            # HTTP + WebSocket server
+uvicorn[standard]>=0.30.0   # ASGI server
+websockets>=12.0
+playwright>=1.47.0          # browser the Computer Use agent drives
+twilio>=9.0.0               # real SMS + voice to emergency contacts
+python-dotenv>=1.0.0
+pydantic>=2.7.0

@@ -1,0 +1,40 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Shadow behind the shield -->
+    <path
+        android:fillColor="#1A000000"
+        android:pathData="M56,15 L20,27 L20,57 C20,75.6 35.3,92.7 56,99 C76.7,92.7 92,75.6 92,57 L92,27 L56,15 Z" />
+
+    <!-- Outer crimson shield frame -->
+    <path
+        android:fillColor="#FF3366"
+        android:pathData="M54,12 L18,24 L18,54 C18,72.6 33.3,89.7 54,96 C74.7,89.7 90,72.6 90,54 L90,24 L54,12 Z" />
+
+    <!-- Inner dark shield core -->
+    <path
+        android:fillColor="#131720"
+        android:pathData="M54,18 L24,28 L24,54 C24,69.5 36.7,83.7 54,89 C71.3,83.7 84,69.5 84,54 L84,28 L54,18 Z" />
+
+    <!-- Padlock Shackle -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF3366"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:pathData="M44,46 V40 C44,34.5 48.5,30 54,30 C59.5,30 64,34.5 64,40 V46" />
+
+    <!-- Padlock Body -->
+    <path
+        android:fillColor="#FF3366"
+        android:pathData="M37,46 H71 C73.2,46 75,47.8 75,50 V68 C75,70.2 73.2,72 71,72 H37 C34.8,72 33,70.2 33,68 V50 C33,47.8 34.8,46 37,46 Z" />
+
+    <!-- Padlock Keyhole -->
+    <path
+        android:fillColor="#131720"
+        android:pathData="M54,54 C51.8,54 50,55.8 50,58 C50,59.5 50.8,60.8 52,61.5 V66 C52,67.1 52.9,68 54,68 C55.1,68 56,67.1 56,66 V61.5 C57.2,60.8 58,59.5 58,58 C58,55.8 56.2,54 54,54 Z" />
+
+</vector>

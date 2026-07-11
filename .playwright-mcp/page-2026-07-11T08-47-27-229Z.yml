@@ -1,0 +1,27 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e5]: SECURE LINK
+      - generic [ref=e6]: ·
+      - generic [ref=e7]: 14:17:27
+    - generic [ref=e8]:
+      - generic [ref=e9]: GHOST OPERATOR (ON)
+      - checkbox [ref=e11]
+  - generic [ref=e13]:
+    - generic [ref=e14]:
+      - generic [ref=e15]: shield
+      - heading "KAVACH" [level=1] [ref=e20]
+      - paragraph [ref=e21]: AUTONOMOUS SAFETY COMPANION
+      - generic [ref=e22]: ALL SYSTEMS NOMINAL · 4 AGENTS STANDING BY
+    - generic [ref=e25]:
+      - generic [ref=e26]: place
+      - generic [ref=e28]:
+        - paragraph [ref=e29]: Nearest Safe Zone
+        - paragraph [ref=e30]: CVS 24/7 Pharmacy (0.2 mi)
+      - generic [ref=e31]: chevron_right
+    - button "warning CODE RED" [ref=e35] [cursor=pointer]:
+      - generic [ref=e36]: warning
+      - generic [ref=e37]: CODE RED
+    - generic [ref=e38]:
+      - paragraph [ref=e39]: "Demo Trigger: Press Button · Triple-tap · 3× Volume key"
+      - paragraph [ref=e40]: "Story Safeword: \"Battery at 2 percent\""
