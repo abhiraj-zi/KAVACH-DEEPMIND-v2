@@ -702,7 +702,14 @@ git commit -m "feat: sentinel distress listener"
 
 ---
 
-### Task 5: Orchestrator refactor — `close` flag, incident context, `live_url`
+### Task 5: Orchestrator split — `resolve_incident()` + `live_url`
+
+> NOTE: `backend/orchestrator.py` was edited after the plan was written. It now
+> has `run_code_red(bus, lat, lng) -> None` which, after coordinating agents,
+> runs an infinite `_monitor(bus, safe_zone)` threat-rescan loop until the task
+> is cancelled, then closes the bus in `finally`. `ActionResult` now has `.eta`.
+> This task PRESERVES that behavior and the `_monitor` loop. Do NOT remove the
+> loop or the eta usage.
 
 **Files:**
 - Modify: `backend/orchestrator.py`
@@ -710,8 +717,9 @@ git commit -m "feat: sentinel distress listener"
 - Create: `tests/test_orchestrator.py`
 
 **Interfaces:**
-- Consumes: existing `run_action_agent`, `run_comms_agent`, `run_verification_agent`.
-- Produces (changed): `async def run_code_red(bus, lat=None, lng=None, live_url=None, close=True) -> dict` returning `{"location_text","maps_url","safe_zone","threat_level","live_url"}`.
+- Consumes: existing `run_action_agent`, `run_comms_agent`, `run_verification_agent`, `_monitor`.
+- Produces (new): `async def resolve_incident(bus, lat=None, lng=None, live_url=None) -> dict` — runs Action + Verification + Comms, returns `{"location_text","maps_url","safe_zone","threat_level","live_url","eta"}`. Does NOT run `_monitor` and does NOT close the bus.
+- Produces (changed): `async def run_code_red(bus, lat=None, lng=None, live_url=None) -> None` — `ctx = await resolve_incident(...)`, then `await _monitor(bus, ctx["safe_zone"])`, `finally: await bus.close()`. Keeps the continuous monitor + bus close.
 - Produces (changed): `async def run_comms_agent(bus, location_text, maps_url=None, live_url=None) -> CommsResult`.
 
 - [ ] **Step 1: Write failing test**
@@ -730,7 +738,8 @@ from tests.conftest import drain
 
 def _stub(monkeypatch):
     async def fake_action(bus, lat=None, lng=None):
-        return ActionResult(True, "12.9,77.5", "http://maps/x", "PS", "ok")
+        r = ActionResult(True, "12.9,77.5", "http://maps/x", "PS", "ok")
+        return r
 
     async def fake_verify(bus, location_text, lat=None, lng=None):
         return VerificationResult("HIGH", 90, "ctx", False)
@@ -747,43 +756,43 @@ def _stub(monkeypatch):
     return captured
 
 
-def test_run_code_red_returns_context(monkeypatch):
+def test_resolve_incident_returns_context(monkeypatch):
     _stub(monkeypatch)
     bus = EventBus(mode="online")
-    ctx = asyncio.run(orch.run_code_red(bus, close=False, live_url="http://live/t"))
+    ctx = asyncio.run(orch.resolve_incident(bus, live_url="http://live/t"))
     assert ctx["maps_url"] == "http://maps/x"
     assert ctx["safe_zone"] == "PS"
     assert ctx["threat_level"] == "HIGH"
     assert ctx["live_url"] == "http://live/t"
 
 
-def test_close_false_keeps_stream_open(monkeypatch):
+def test_resolve_incident_does_not_close_bus(monkeypatch):
     _stub(monkeypatch)
     bus = EventBus(mode="online")
-    asyncio.run(orch.run_code_red(bus, close=False))
-    # sentinel value None must NOT be present when close=False
+    asyncio.run(orch.resolve_incident(bus))
     events = drain(bus)
-    assert events  # got events
-    assert bus._queue.qsize() == 0  # drained, and no None sentinel remained
+    assert events  # emitted progress
+    # No None sentinel was queued (bus stays open for the caller).
+    assert bus._queue.qsize() == 0
 
 
 def test_comms_receives_live_url(monkeypatch):
     captured = _stub(monkeypatch)
     bus = EventBus(mode="online")
-    asyncio.run(orch.run_code_red(bus, close=False, live_url="http://live/abc"))
+    asyncio.run(orch.resolve_incident(bus, live_url="http://live/abc"))
     assert captured["live_url"] == "http://live/abc"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `.venv/bin/python -m pytest tests/test_orchestrator.py -v`
-Expected: FAIL — `TypeError: run_code_red() got an unexpected keyword argument 'close'`.
+Expected: FAIL — `AttributeError: module 'backend.orchestrator' has no attribute 'resolve_incident'`.
 
 - [ ] **Step 3: Update `run_comms_agent` signature (comms.py)**
 
-In `backend/agents/comms.py`, change the signature and SMS body:
+In `backend/agents/comms.py`, add a `live_url` parameter and include it in the SMS.
 
-Replace the `run_comms_agent` definition line:
+Change the `run_comms_agent` signature:
 ```python
 async def run_comms_agent(
     bus: EventBus,
@@ -791,7 +800,7 @@ async def run_comms_agent(
     maps_url: Optional[str] = None,
 ) -> CommsResult:
 ```
-with:
+to:
 ```python
 async def run_comms_agent(
     bus: EventBus,
@@ -801,7 +810,7 @@ async def run_comms_agent(
 ) -> CommsResult:
 ```
 
-In `_crisis_sms`, change the signature to accept `live_url` and append it. Replace:
+Change `_crisis_sms`:
 ```python
 def _crisis_sms(location_text: str, maps_url: Optional[str]) -> str:
     body = (
@@ -813,7 +822,7 @@ def _crisis_sms(location_text: str, maps_url: Optional[str]) -> str:
     body += " A cab has been dispatched. Please respond immediately."
     return body
 ```
-with:
+to:
 ```python
 def _crisis_sms(location_text: str, maps_url: Optional[str],
                 live_url: Optional[str] = None) -> str:
@@ -829,78 +838,86 @@ def _crisis_sms(location_text: str, maps_url: Optional[str],
     return body
 ```
 
-Thread `live_url` through the two `_crisis_sms(...)` call sites and the dispatch/simulate helpers. In `run_comms_agent`, update both fallback and thread calls to pass `live_url`:
-- Replace `return await _simulate(bus, contacts, location_text, maps_url)` (both occurrences) with `return await _simulate(bus, contacts, location_text, maps_url, live_url)`.
-- Replace the `asyncio.to_thread(_twilio_dispatch, bus, loop, contacts, location_text, maps_url)` call with the same plus `, live_url`.
+Thread `live_url` through the call sites:
+- In `run_comms_agent`: both `return await _simulate(bus, contacts, location_text, maps_url)` → add `, live_url`; and the `asyncio.to_thread(_twilio_dispatch, bus, loop, contacts, location_text, maps_url)` → add `, live_url`.
+- `_twilio_dispatch`: add `live_url: Optional[str]` as the last param; change `body = _crisis_sms(location_text, maps_url)` → `body = _crisis_sms(location_text, maps_url, live_url)`.
+- `_simulate`: add `live_url: Optional[str] = None` as the last param; change `body = _crisis_sms(location_text, maps_url)` → `body = _crisis_sms(location_text, maps_url, live_url)`.
 
-Update `_twilio_dispatch` signature to add `live_url: Optional[str]` (last param) and its `body = _crisis_sms(location_text, maps_url)` → `body = _crisis_sms(location_text, maps_url, live_url)`.
+- [ ] **Step 4: Split `run_code_red` into `resolve_incident` + `run_code_red` (orchestrator.py)**
 
-Update `_simulate` signature to add `live_url: Optional[str] = None` (last param) and its `body = _crisis_sms(location_text, maps_url)` → `body = _crisis_sms(location_text, maps_url, live_url)`.
+In `backend/orchestrator.py`, replace the current `run_code_red` function body (the one that coordinates agents then calls `await _monitor(...)`) with a `resolve_incident` function that returns context, plus a thin `run_code_red` that calls it then runs `_monitor`. Keep the existing `_monitor` function and the `eta_txt` line unchanged.
 
-- [ ] **Step 4: Update `run_code_red` (orchestrator.py)**
-
-In `backend/orchestrator.py`, replace the whole `run_code_red` function with:
+Replace the whole `async def run_code_red(...)` definition (from `async def run_code_red(` down to just before `async def _monitor(`) with:
 ```python
+async def resolve_incident(
+    bus: EventBus,
+    lat: Optional[float] = None,
+    lng: Optional[float] = None,
+    live_url: Optional[str] = None,
+) -> dict:
+    """Coordinate Action + Verification + Comms; return incident context.
+
+    Does NOT run the continuous monitor and does NOT close the bus — the
+    caller (run_code_red or the sentinel Monitor) owns lifecycle after this.
+    """
+    lat = lat if lat is not None else config.DEFAULT_LAT
+    lng = lng if lng is not None else config.DEFAULT_LNG
+    location_text = f"{lat:.4f}, {lng:.4f}"
+
+    await bus.emit(
+        STAGE, AGENT_ORCHESTRATOR,
+        "CODE RED classified — silent distress confirmed. Spawning "
+        "Verification, Action and Comms agents.",
+    )
+    verify_task = asyncio.create_task(
+        run_verification_agent(bus, location_text, lat, lng)
+    )
+    action_task = asyncio.create_task(run_action_agent(bus, lat, lng))
+
+    await bus.emit(
+        STAGE, AGENT_ORCHESTRATOR,
+        "Agents running in parallel — resolving safe route and threat level.",
+    )
+
+    action_result = await action_task
+    comms_task = asyncio.create_task(
+        run_comms_agent(
+            bus,
+            location_text=action_result.location_text,
+            maps_url=action_result.maps_url,
+            live_url=live_url,
+        )
+    )
+    verify_result, comms_result = await asyncio.gather(verify_task, comms_task)
+
+    eta_txt = f" (ETA {action_result.eta})" if action_result.eta else ""
+    await bus.emit(
+        STAGE, AGENT_ORCHESTRATOR,
+        f"Response coordinated — route to {action_result.safe_zone}{eta_txt} locked, "
+        f"contacts alerted ({'live' if not comms_result.simulated else 'simulated'}), "
+        f"threat {verify_result.threat_level}. Standing by, monitoring.",
+    )
+    return {
+        "location_text": location_text,
+        "maps_url": action_result.maps_url,
+        "safe_zone": action_result.safe_zone,
+        "threat_level": verify_result.threat_level,
+        "live_url": live_url,
+        "eta": action_result.eta,
+    }
+
+
 async def run_code_red(
     bus: EventBus,
     lat: Optional[float] = None,
     lng: Optional[float] = None,
     live_url: Optional[str] = None,
-    close: bool = True,
-) -> dict:
-    """Drive a full Code Red response; return incident context.
-
-    When close=True the bus is closed at the end (standalone Code Red). When
-    close=False the stream stays open (monitor keeps it for the voice agent).
-    """
-    lat = lat if lat is not None else config.DEFAULT_LAT
-    lng = lng if lng is not None else config.DEFAULT_LNG
-    location_text = f"{lat:.4f}, {lng:.4f}"
-    context = {
-        "location_text": location_text,
-        "maps_url": "",
-        "safe_zone": "Nearest Police Station",
-        "threat_level": "HIGH",
-        "live_url": live_url,
-    }
+) -> None:
+    """Full standalone Code Red: resolve, then monitor until resolved."""
     try:
-        await bus.emit(
-            STAGE, AGENT_ORCHESTRATOR,
-            "CODE RED classified — silent distress confirmed. Spawning "
-            "Verification, Action and Comms agents.",
-        )
-        verify_task = asyncio.create_task(
-            run_verification_agent(bus, location_text, lat, lng)
-        )
-        action_task = asyncio.create_task(run_action_agent(bus, lat, lng))
-
-        await bus.emit(
-            STAGE, AGENT_ORCHESTRATOR,
-            "Agents running in parallel — resolving safe route and threat level.",
-        )
-
-        action_result = await action_task
-        context["maps_url"] = action_result.maps_url
-        context["safe_zone"] = action_result.safe_zone
-
-        comms_task = asyncio.create_task(
-            run_comms_agent(
-                bus,
-                location_text=action_result.location_text,
-                maps_url=action_result.maps_url,
-                live_url=live_url,
-            )
-        )
-        verify_result, comms_result = await asyncio.gather(verify_task, comms_task)
-        context["threat_level"] = verify_result.threat_level
-
-        await bus.emit(
-            STAGE, AGENT_ORCHESTRATOR,
-            f"Response coordinated — route to {action_result.safe_zone} locked, "
-            f"contacts alerted ({'live' if not comms_result.simulated else 'simulated'}), "
-            f"threat {verify_result.threat_level}. Standing by.",
-        )
-    except Exception as exc:  # noqa: BLE001
+        ctx = await resolve_incident(bus, lat, lng, live_url)
+        await _monitor(bus, ctx["safe_zone"])
+    except Exception as exc:  # noqa: BLE001 — never leave the UI hanging
         await bus.emit(
             STAGE, AGENT_ORCHESTRATOR,
             f"Orchestrator error ({type(exc).__name__}) — response degraded but "
@@ -908,10 +925,10 @@ async def run_code_red(
             status="failed",
         )
     finally:
-        if close:
-            await bus.close()
-    return context
+        await bus.close()
 ```
+
+Leave `async def _monitor(bus, safe_zone)` exactly as it is.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
@@ -922,7 +939,7 @@ Expected: PASS (all).
 
 ```bash
 git add backend/orchestrator.py backend/agents/comms.py tests/test_orchestrator.py
-git commit -m "refactor: run_code_red close flag + incident context + live_url in comms"
+git commit -m "refactor: split resolve_incident from run_code_red + live_url in comms"
 ```
 
 ---
@@ -934,9 +951,11 @@ git commit -m "refactor: run_code_red close flag + incident context + live_url i
 - Create: `tests/test_monitor.py`
 
 **Interfaces:**
-- Consumes: `run_sentinel`, `run_code_red`, `run_voice_companion` (Task 7 — reference by name; stubbed in tests), `audio.earphone_connected`, `EventBus`.
+- Consumes: `run_sentinel` (Task 4), `resolve_incident` + `_monitor` (Task 5), `run_voice_companion` (Task 7), `audio.earphone_connected`, `EventBus`.
 - Produces: `class Monitor` with attributes `task: asyncio.Task`, method `stop() -> None`.
 - Produces: `def start_monitoring(bus, lat=None, lng=None, live_url=None) -> Monitor`.
+
+Flow inside `Monitor._run()`: await `run_sentinel`; if it returns a result (distress), emit an escalation line, call `resolve_incident(...)` to get context, then run `_monitor(bus, ctx["safe_zone"])` AND (if `earphone_connected()`) `run_voice_companion(bus, ctx)` **concurrently** via `asyncio.gather`. Cancellation (server calls `stop()` + cancels the task on Resolve) ends everything; bus closed in `finally`.
 
 - [ ] **Step 1: Write failing test**
 
@@ -947,25 +966,28 @@ import asyncio
 import backend.monitor as monitor
 from backend.events import EventBus
 from backend.agents.sentinel import SentinelResult
-from tests.conftest import drain
 
 
-def test_monitor_distress_triggers_codered_and_voice(monkeypatch):
-    calls = {"code_red": False, "voice": False}
+def test_monitor_distress_resolves_and_runs_voice(monkeypatch):
+    calls = {"resolve": False, "voice": False}
 
     async def fake_sentinel(bus, stop_event):
         return SentinelResult("help", True, "HIGH", "x")
 
-    async def fake_code_red(bus, lat=None, lng=None, live_url=None, close=True):
-        calls["code_red"] = True
+    async def fake_resolve(bus, lat=None, lng=None, live_url=None):
+        calls["resolve"] = True
         return {"safe_zone": "PS", "maps_url": "u", "location_text": "l",
-                "threat_level": "HIGH", "live_url": live_url}
+                "threat_level": "HIGH", "live_url": live_url, "eta": None}
+
+    async def fake_threat_monitor(bus, safe_zone):
+        return  # finite for the test
 
     async def fake_voice(bus, context):
         calls["voice"] = True
 
     monkeypatch.setattr(monitor, "run_sentinel", fake_sentinel)
-    monkeypatch.setattr(monitor, "run_code_red", fake_code_red)
+    monkeypatch.setattr(monitor, "resolve_incident", fake_resolve)
+    monkeypatch.setattr(monitor, "_monitor", fake_threat_monitor)
     monkeypatch.setattr(monitor, "run_voice_companion", fake_voice)
     monkeypatch.setattr(monitor, "earphone_connected", lambda: True)
 
@@ -973,10 +995,9 @@ def test_monitor_distress_triggers_codered_and_voice(monkeypatch):
         bus = EventBus(mode="online")
         m = monitor.start_monitoring(bus, live_url="http://live/t")
         await m.task
-        return bus
 
-    bus = asyncio.run(go())
-    assert calls["code_red"] is True
+    asyncio.run(go())
+    assert calls["resolve"] is True
     assert calls["voice"] is True
 
 
@@ -986,15 +1007,19 @@ def test_monitor_no_earphone_skips_voice(monkeypatch):
     async def fake_sentinel(bus, stop_event):
         return SentinelResult("help", True, "HIGH", "x")
 
-    async def fake_code_red(bus, lat=None, lng=None, live_url=None, close=True):
+    async def fake_resolve(bus, lat=None, lng=None, live_url=None):
         return {"safe_zone": "PS", "maps_url": "u", "location_text": "l",
-                "threat_level": "HIGH", "live_url": live_url}
+                "threat_level": "HIGH", "live_url": live_url, "eta": None}
+
+    async def fake_threat_monitor(bus, safe_zone):
+        return
 
     async def fake_voice(bus, context):
         calls["voice"] = True
 
     monkeypatch.setattr(monitor, "run_sentinel", fake_sentinel)
-    monkeypatch.setattr(monitor, "run_code_red", fake_code_red)
+    monkeypatch.setattr(monitor, "resolve_incident", fake_resolve)
+    monkeypatch.setattr(monitor, "_monitor", fake_threat_monitor)
     monkeypatch.setattr(monitor, "run_voice_companion", fake_voice)
     monkeypatch.setattr(monitor, "earphone_connected", lambda: False)
 
@@ -1035,9 +1060,10 @@ Create `backend/monitor.py`:
 ```python
 """Monitor — sentinel → auto Code Red → live voice companion lifecycle.
 
-Runs the sentinel; on distress it invokes the existing orchestrator (keeping
-the SSE stream open), then starts the live voice companion if an earphone is
-connected. Closes the bus at the end.
+Runs the sentinel; on distress it coordinates the incident (resolve_incident),
+then runs the continuous threat monitor and — if an earphone is connected —
+the live voice companion, concurrently, until the session is resolved
+(the task is cancelled). Closes the bus at the end.
 """
 from __future__ import annotations
 
@@ -1046,7 +1072,7 @@ from typing import Optional
 
 from .audio import earphone_connected
 from .events import AGENT_ORCHESTRATOR, EventBus
-from .orchestrator import run_code_red
+from .orchestrator import resolve_incident, _monitor
 from .agents.sentinel import run_sentinel
 from .agents.voice import run_voice_companion
 
@@ -1075,20 +1101,28 @@ class Monitor:
                 STAGE, AGENT_ORCHESTRATOR,
                 "Distress confirmed — escalating to autonomous Code Red.",
             )
-            context = await run_code_red(
-                self.bus, self.lat, self.lng, live_url=self.live_url, close=False
+            ctx = await resolve_incident(
+                self.bus, self.lat, self.lng, live_url=self.live_url
             )
+            tasks = [asyncio.create_task(_monitor(self.bus, ctx["safe_zone"]))]
             if earphone_connected():
                 await self.bus.emit(
                     STAGE, AGENT_ORCHESTRATOR,
                     "Earphone detected — connecting live voice companion.",
                 )
-                await run_voice_companion(self.bus, context)
+                tasks.append(asyncio.create_task(run_voice_companion(self.bus, ctx)))
             else:
                 await self.bus.emit(
                     STAGE, AGENT_ORCHESTRATOR,
                     "No earphone — voice companion on standby.",
                 )
+            try:
+                await asyncio.gather(*tasks)
+            finally:
+                for t in tasks:
+                    t.cancel()
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:  # noqa: BLE001
             await self.bus.emit(
                 STAGE, AGENT_ORCHESTRATOR,
@@ -1110,17 +1144,16 @@ def start_monitoring(
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest tests/test_monitor.py -v`
-Expected: PASS (3 passed). (Task 7 creates `voice.py`; if running out of order, create an empty `run_voice_companion` stub first — but implement Task 7 next.)
+Expected: PASS (3 passed). NOTE: `backend/agents/voice.py` (Task 7) must already exist — this plan runs Task 7 BEFORE Task 6. If it does not exist yet, stop and report NEEDS_CONTEXT.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add backend/monitor.py tests/test_monitor.py
-git commit -m "feat: monitor lifecycle glue (sentinel->codered->voice)"
+git commit -m "feat: monitor lifecycle glue (sentinel->resolve->voice, concurrent)"
 ```
 
 ---
-
 ### Task 7: Live voice companion (`backend/agents/voice.py`)
 
 **Files:**
@@ -1554,7 +1587,7 @@ def _start_session(session_id: str, data: dict) -> None:
     lat, lng = data.get("lat"), data.get("lng")
     live_url = f"/live/{token}"
     task = asyncio.create_task(
-        run_code_red(bus, lat, lng, live_url=live_url, close=True)
+        run_code_red(bus, lat, lng, live_url=live_url)
     )
     _sessions[session_id] = Session(bus, task=task, token=token)
 ```
