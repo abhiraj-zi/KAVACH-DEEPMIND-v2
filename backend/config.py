@@ -23,6 +23,14 @@ MODEL_COMPUTER_USE = os.getenv(
     "KAVACH_MODEL_COMPUTER_USE", "gemini-2.5-computer-use-preview-10-2025"
 )
 
+# Ambient sentinel + live voice.
+MODEL_SENTINEL = os.getenv("KAVACH_MODEL_SENTINEL", "gemini-3.5-flash")
+MODEL_LIVE_VOICE = os.getenv("KAVACH_MODEL_LIVE_VOICE", "gemini-3.1-flash-live-preview")
+LIVE_VOICE_NAME = os.getenv("KAVACH_LIVE_VOICE_NAME", "Kore")
+SENTINEL_CHUNK_SECONDS = int(os.getenv("KAVACH_SENTINEL_CHUNK_SECONDS", "4"))
+SENTINEL_LEVEL_TRIGGER = os.getenv("KAVACH_SENTINEL_LEVEL_TRIGGER", "HIGH").upper()
+SIMULATE_DISTRESS = os.getenv("KAVACH_SIMULATE_DISTRESS", "false").lower() == "true"
+
 # --- Twilio (Comms agent) ---------------------------------------------------
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
@@ -52,3 +60,11 @@ def require_api_key() -> str:
     if not GEMINI_API_KEY:
         raise RuntimeError("GEMINI_AI_KEY missing from .env")
     return GEMINI_API_KEY
+
+
+def force_earphone():
+    """Optional demo override for earphone detection. None = auto-detect."""
+    val = os.getenv("KAVACH_FORCE_EARPHONE")
+    if val is None:
+        return None
+    return val.strip().lower() == "true"

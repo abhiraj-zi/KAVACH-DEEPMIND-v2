@@ -8,3 +8,6 @@ playwright>=1.47.0          # browser the Computer Use agent drives
 twilio>=9.0.0               # real SMS + voice to emergency contacts
 python-dotenv>=1.0.0
 pydantic>=2.7.0
+pyaudio>=0.2.14             # mic capture + speaker playback (Live audio)
+pytest>=8.0.0              # dev: tests
+pytest-asyncio>=0.23.0     # dev: async tests
