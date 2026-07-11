@@ -91,18 +91,19 @@ async def _live_session(bus: EventBus, context: dict) -> None:
                 await asyncio.to_thread(spk.play, pcm)
 
         async def receive():
-            async for resp in session.receive():
-                sc = resp.server_content
-                if sc and sc.model_turn:
-                    for part in sc.model_turn.parts or []:
-                        if part.inline_data and part.inline_data.data:
-                            out_q.put_nowait(part.inline_data.data)
-                if sc and sc.output_transcription and sc.output_transcription.text:
-                    await bus.emit(STAGE, AGENT_COMMS,
-                                   f"Companion: {sc.output_transcription.text}")
-                if sc and sc.input_transcription and sc.input_transcription.text:
-                    await bus.emit(STAGE, AGENT_COMMS,
-                                   f"You: {sc.input_transcription.text}")
+            while True:
+                async for resp in session.receive():
+                    sc = resp.server_content
+                    if sc and sc.model_turn:
+                        for part in sc.model_turn.parts or []:
+                            if part.inline_data and part.inline_data.data:
+                                out_q.put_nowait(part.inline_data.data)
+                    if sc and sc.output_transcription and sc.output_transcription.text:
+                        await bus.emit(STAGE, AGENT_COMMS,
+                                       f"Companion: {sc.output_transcription.text}")
+                    if sc and sc.input_transcription and sc.input_transcription.text:
+                        await bus.emit(STAGE, AGENT_COMMS,
+                                       f"You: {sc.input_transcription.text}")
 
         tasks = [asyncio.create_task(send_mic()),
                  asyncio.create_task(play_out()),
@@ -112,5 +113,6 @@ async def _live_session(bus: EventBus, context: dict) -> None:
         finally:
             for t in tasks:
                 t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
             mic.stop()
             spk.close()
