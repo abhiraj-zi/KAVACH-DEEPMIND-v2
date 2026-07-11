@@ -16,10 +16,16 @@ import asyncio
 from dataclasses import dataclass
 from typing import Optional
 
-from .. import config
-from ..events import AGENT_COMMS, EventBus
+from .. import config, local_llm
+from ..events import AGENT_COMMS, AGENT_GEMMA, EventBus
 
 STAGE = "Comms"
+
+_SOS_SYSTEM = (
+    "You draft an emergency SOS text, fully ON-DEVICE (local Gemma), because "
+    "the phone has NO signal. One urgent, clear SMS under 320 characters. "
+    "No preamble, output only the message body."
+)
 
 
 @dataclass
@@ -84,6 +90,82 @@ async def run_comms_agent(
             f"Twilio failed ({type(exc).__name__}) — falling back to simulation.",
         )
         return await _simulate(bus, contacts, location_text, maps_url)
+
+
+async def run_comms_agent_offline(
+    bus: EventBus,
+    location_text: str,
+    maps_url: Optional[str] = None,
+    safe_zone: Optional[str] = None,
+) -> CommsResult:
+    """DARK SURVIVAL Comms path — draft on-device, queue the SOS beacon.
+
+    Twilio needs the network, so offline we can't send now. Instead local Gemma
+    drafts the crisis SMS on-device and we QUEUE the SOS beacon (SMS + call) to
+    auto-transmit the instant signal returns — the message is ready, not lost.
+    """
+    await bus.emit(
+        STAGE, AGENT_COMMS,
+        "Comms Agent (on-device) — no signal; preparing SOS beacon to queue.",
+    )
+
+    body = await _draft_sos_offline(bus, location_text, maps_url, safe_zone)
+
+    contacts = config.EMERGENCY_CONTACTS or ["+91-DEMO-CONTACT"]
+    for number in contacts:
+        await bus.emit(
+            STAGE, AGENT_COMMS,
+            f"SOS QUEUED → {number}: {body[:70]}…",
+        )
+        await asyncio.sleep(0.3)
+    await bus.emit(
+        STAGE, AGENT_COMMS,
+        f"SOS beacon armed for {len(contacts)} contact(s) — SMS + voice will "
+        "auto-transmit the instant signal returns. Message stored on-device.",
+    )
+    return CommsResult(
+        list(contacts), list(contacts), simulated=True,
+        message="Offline SOS beacon queued (on-device, awaiting signal)",
+    )
+
+
+async def _draft_sos_offline(
+    bus: EventBus,
+    location_text: str,
+    maps_url: Optional[str],
+    safe_zone: Optional[str],
+) -> str:
+    """Draft the crisis SMS with local Gemma; deterministic body if it's down."""
+    await bus.emit(
+        STAGE, AGENT_GEMMA,
+        "On-device Gemma drafting the emergency SOS message…",
+    )
+    zone_txt = f" Nearest safe zone: {safe_zone}." if safe_zone else ""
+    prompt = (
+        f"Write an emergency SOS text from {config.USER_NAME}, who triggered a "
+        f"silent distress alarm and has no phone signal. Location: "
+        f"{location_text}.{zone_txt} "
+        f"{'Map: ' + maps_url if maps_url else ''} "
+        "Ask the recipient to call the police and respond immediately."
+    )
+    try:
+        body = await asyncio.wait_for(
+            local_llm.chat(prompt, system=_SOS_SYSTEM, max_tokens=1024),
+            timeout=config.LOCAL_LLM_TIMEOUT_S + 2,
+        )
+        if body:
+            await bus.emit(
+                STAGE, AGENT_GEMMA,
+                f"SOS drafted on-device [{local_llm.resolved_model_name()}]: "
+                f"{body[:80]}…",
+            )
+            return body
+    except Exception as exc:  # noqa: BLE001 — fall back to the template body
+        await bus.emit(
+            STAGE, AGENT_GEMMA,
+            f"On-device draft failed ({type(exc).__name__}) — using template SOS.",
+        )
+    return _crisis_sms(location_text, maps_url)
 
 
 def _twilio_dispatch(

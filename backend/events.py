@@ -26,6 +26,7 @@ AGENT_ORCHESTRATOR = "Antigravity"
 AGENT_ACTION = "Computer Use"
 AGENT_COMMS = "Live Voice"
 AGENT_VERIFY = "Omni"
+AGENT_GEMMA = "Gemma"  # on-device fallback brain (DARK SURVIVAL / offline)
 
 
 class EventBus:

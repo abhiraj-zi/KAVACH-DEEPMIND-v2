@@ -11,6 +11,7 @@ if the backend itself is down the web app falls back to its own local mock.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import sys
@@ -69,22 +70,53 @@ async def trigger(request: Request):
     mode = data.get("mode", "online")
     print(f"Trigger received: action={action} mode={mode} source={data.get('source')}")
 
-    if action == "code_red" and mode != "offline":
-        _start_session("1", data)
+    if action == "code_red":
+        # Offline mode (DARK SURVIVAL) forces the on-device Gemma path. Online
+        # mode passes offline=None so the orchestrator probes connectivity and
+        # auto-falls to Gemma if Wi-Fi is actually off.
+        _start_session("1", data, offline=(mode == "offline"))
     elif action == "resolve":
         _end_session("1")
-    # mode_switch (and offline code_red) are handled UI-side; just ack.
+    # mode_switch is handled UI-side; just ack.
 
     return {"status": "ok", "mode": mode}
 
 
-def _start_session(session_id: str, data: dict) -> None:
+def _start_session(session_id: str, data: dict, offline: bool = False) -> None:
     _end_session(session_id)  # clear any stale session first
-    bus = EventBus(mode="online")
+    bus = EventBus(mode="offline" if offline else "online")
     lat = data.get("lat")
     lng = data.get("lng")
-    task = asyncio.create_task(run_code_red(bus, lat, lng))
+    audio, audio_mime = _decode_audio(data)
+    task = asyncio.create_task(
+        run_code_red(
+            bus, lat, lng, audio=audio, audio_mime=audio_mime,
+            offline=True if offline else None,
+        )
+    )
     _sessions[session_id] = Session(bus, task)
+
+
+def _decode_audio(data: dict):
+    """Pull an optional base64 ambient clip off the trigger payload.
+
+    Frontend/Android may send {"audio": "<base64>", "audio_mime": "audio/webm"}
+    (a data-URI prefix like "data:audio/webm;base64," is tolerated). Returns
+    (bytes | None, mime); never raises — a bad clip just skips voice analysis.
+    """
+    raw = data.get("audio")
+    if not raw or not isinstance(raw, str):
+        return None, "audio/webm"
+    mime = data.get("audio_mime", "audio/webm")
+    if raw.startswith("data:"):
+        header, _, raw = raw.partition(",")
+        if ";" in header and header[5:].split(";", 1)[0]:
+            mime = header[5:].split(";", 1)[0]
+    try:
+        return base64.b64decode(raw, validate=False), mime
+    except Exception:  # noqa: BLE001 — malformed clip -> fall back to text
+        print("Trigger audio: could not decode base64 clip; ignoring.")
+        return None, mime
 
 
 def _end_session(session_id: str) -> None:

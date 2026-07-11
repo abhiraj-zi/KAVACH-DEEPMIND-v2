@@ -13,6 +13,7 @@ cap and wall-clock timeout, and any failure degrades to a deterministic result
 from __future__ import annotations
 
 import asyncio
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Optional
@@ -21,7 +22,18 @@ from google import genai
 from google.genai import types
 
 from .. import config
-from ..events import AGENT_ACTION, EventBus
+from ..events import AGENT_ACTION, AGENT_GEMMA, EventBus
+
+# On-device offline map: a small bundled list of known 24/7 safe zones so the
+# Action agent can still resolve a real destination with the radio off. Extend
+# per deployment city. (Defaults are central Bengaluru, matching config.)
+CACHED_SAFE_ZONES: list[dict] = [
+    {"name": "Cubbon Park Police Station", "lat": 12.9763, "lng": 77.5929},
+    {"name": "Ashok Nagar Police Station", "lat": 12.9698, "lng": 77.6050},
+    {"name": "Vidhana Soudha Police Station", "lat": 12.9794, "lng": 77.5912},
+    {"name": "Commercial Street Police Station", "lat": 12.9829, "lng": 77.6094},
+    {"name": "High Grounds Police Station", "lat": 12.9880, "lng": 77.5878},
+]
 
 # Bounds that keep the live demo snappy and safe.
 MAX_STEPS = 14
@@ -73,6 +85,70 @@ def _parse_safe_zone(
     return name, eta
 
 
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlmb = math.radians(lng2 - lng1)
+    a = (
+        math.sin(dphi / 2) ** 2
+        + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2
+    )
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def _nearest_cached_zone(lat: float, lng: float) -> tuple[dict, float]:
+    """Nearest bundled safe zone + straight-line distance (km) — no network."""
+    best = min(
+        CACHED_SAFE_ZONES,
+        key=lambda z: _haversine_km(lat, lng, z["lat"], z["lng"]),
+    )
+    return best, _haversine_km(lat, lng, best["lat"], best["lng"])
+
+
+async def run_action_agent_offline(
+    bus: EventBus,
+    lat: Optional[float] = None,
+    lng: Optional[float] = None,
+) -> ActionResult:
+    """DARK SURVIVAL Action path — resolve a route with NO internet.
+
+    The Computer Use browser needs the network, so offline we fall back to the
+    on-device cached safe-zone map: pick the nearest known police station by
+    straight-line distance and hand back an openable pin (valid once signal
+    returns). Estimates ETA from distance at ~4.5 km/h walking pace.
+    """
+    lat = lat if lat is not None else config.DEFAULT_LAT
+    lng = lng if lng is not None else config.DEFAULT_LNG
+    location_text = f"{lat:.4f}, {lng:.4f}"
+
+    await bus.emit(
+        "Action", AGENT_ACTION,
+        "Action Agent (on-device) — no network; resolving nearest safe zone "
+        "from cached offline map.",
+    )
+    await asyncio.sleep(0.6)
+
+    zone, dist_km = _nearest_cached_zone(lat, lng)
+    walk_min = max(1, round(dist_km / 4.5 * 60))
+    eta = f"{walk_min} min"
+    maps_url = _maps_search_url(zone["lat"], zone["lng"], zone["name"])
+
+    await bus.emit(
+        "Action", AGENT_ACTION,
+        f"Route locked to {zone['name']} · ETA {eta} "
+        f"({dist_km:.1f} km, cached offline pin).",
+    )
+    return ActionResult(
+        ok=True,
+        location_text=location_text,
+        maps_url=maps_url,
+        safe_zone=zone["name"],
+        summary=f"Offline route to {zone['name']} from on-device cached map.",
+        eta=eta,
+    )
+
+
 async def run_action_agent(
     bus: EventBus,
     lat: Optional[float] = None,
@@ -97,12 +173,19 @@ async def run_action_agent(
             f"Computer Use interrupted ({type(exc).__name__}); using resolved "
             f"route to nearest police station.",
         )
+        # Canonical phrasing so the UI map draws the route + safe zone even on
+        # the fallback path (frontend parseSignals looks for "Route locked to").
+        await bus.emit(
+            "Action", AGENT_ACTION,
+            "Route locked to Nearest Police Station · ETA 6 min. Live map ready.",
+        )
         return ActionResult(
             ok=False,
             location_text=location_text,
             maps_url=fallback_url,
             safe_zone="Nearest Police Station",
             summary="Fallback route resolved to nearest police station.",
+            eta="6 min",
         )
 
 

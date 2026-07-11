@@ -10,8 +10,42 @@ to the phone UI over **Server-Sent Events**.
 - **Comms Agent** (`Live Voice`) — real Twilio SMS + voice call to emergency
   contacts (auto-falls back to simulated if creds/contacts missing).
 - **Verification Agent** (`Omni`) — Gemini Flash ambient threat assessment.
+- **On-device brain** (`Gemma`) — local Gemma via LM Studio. When there is **no
+  internet**, Kavach flips to **DARK SURVIVAL**: Gemma runs the threat
+  assessment and drafts the SOS entirely on-device.
 
 Every agent degrades gracefully — the demo never hard-fails.
+
+## Offline mode (DARK SURVIVAL — no internet)
+
+The cloud agents (Gemini Computer Use, Twilio) need the network. When the phone
+loses connectivity Kavach keeps working on-device:
+
+- **Gemma (`Omni`)** — real threat assessment from a local Gemma model.
+- **Action (`Computer Use`)** — nearest police station from a *cached offline
+  map* (no browser), with a walking ETA.
+- **Comms (`Live Voice`)** — Gemma drafts the SOS on-device and the beacon is
+  **queued to auto-transmit the instant signal returns** (nothing is lost).
+
+**How it triggers** — two ways, both real:
+1. **Auto** — just turn Wi-Fi off and hit Code Red. The orchestrator probes
+   connectivity (`internet_up()`); no internet → it routes to Gemma.
+2. **Manual** — flip the UI's DARK SURVIVAL toggle to force the on-device path.
+
+**Serving Gemma (LM Studio):** Developer tab → load your `gemma…e4b` model →
+Start Server on port **1234**. Kavach auto-detects the loaded model id from
+`/v1/models`; nothing to configure. If LM Studio isn't running, the offline path
+still works via a deterministic fallback (it just won't be a real LLM).
+
+Relevant `.env` knobs (all optional — sensible defaults):
+
+```
+KAVACH_LOCAL_LLM=true                        # enable on-device fallback
+KAVACH_LOCAL_BASE_URL=http://localhost:1234/v1
+KAVACH_LOCAL_MODEL=                          # blank = auto-detect Gemma
+KAVACH_LOCAL_TIMEOUT_S=30
+KAVACH_CONNECTIVITY_TIMEOUT_S=2.5            # how fast we declare "offline"
+```
 
 ## Layout
 

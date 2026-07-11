@@ -6,6 +6,10 @@
     <title>Kavach - Zero-UI Safety System</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <script>
         tailwind.config = {
             theme: {
@@ -159,7 +163,7 @@
 
         /* Dead screen (Dark Survival) */
         .dead-screen { background: black !important; }
-        .dead-screen > *:not(.overlay-hint) { display: none !important; }
+        .dead-screen > *:not(.overlay-hint):not(.dark-status) { display: none !important; }
         .dead-screen .overlay-hint {
             display: flex !important;
             position: fixed;
@@ -172,6 +176,51 @@
             animation: faintPulse 3s ease-in-out infinite;
         }
         @keyframes faintPulse { 50% { color: rgba(255,255,255,0.14); } }
+
+        /* On-device Gemma status pill — visible ONLY on the dead screen so the
+           offline AI is obviously working without revealing the tactical HUD. */
+        .dark-status { display: none; }
+        .dead-screen .dark-status {
+            display: flex !important;
+            position: fixed;
+            top: 54px; left: 50%; transform: translateX(-50%);
+            z-index: 60;
+            flex-direction: column; align-items: center; gap: 6px;
+            width: max-content; max-width: 88vw;
+        }
+        .ds-pill {
+            display: flex; align-items: center; gap: 9px;
+            padding: 8px 16px; border-radius: 9999px;
+            background: rgba(18,20,26,0.92);
+            border: 1px solid rgba(255,138,0,0.45);
+            box-shadow: 0 0 22px rgba(255,138,0,0.18);
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            transition: box-shadow 0.25s ease, border-color 0.25s ease;
+        }
+        .ds-pill.ds-flash {
+            border-color: rgba(255,138,0,0.95);
+            box-shadow: 0 0 30px rgba(255,138,0,0.55);
+        }
+        .ds-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #FF8A00; box-shadow: 0 0 8px #FF8A00;
+            animation: dsBlink 1.4s ease-in-out infinite;
+        }
+        @keyframes dsBlink { 50% { opacity: 0.25; } }
+        .ds-title { color: #FF8A00; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.12em; }
+        .ds-model { color: rgba(255,255,255,0.55); font-size: 0.62rem; letter-spacing: 0.04em; }
+        .ds-count {
+            color: rgba(255,138,0,0.9); font-size: 0.6rem; font-weight: 700;
+            padding: 1px 7px; border-radius: 9999px;
+            border: 1px solid rgba(255,138,0,0.35); background: rgba(255,138,0,0.08);
+        }
+        .ds-activity {
+            color: rgba(255,255,255,0.4);
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 0.6rem; letter-spacing: 0.02em; text-align: center;
+            max-width: 82vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            transition: color 0.2s ease;
+        }
 
         .radar-sweep {
             position: absolute;
@@ -188,23 +237,64 @@
 
         button { transition: transform 0.12s ease, box-shadow 0.25s ease, background 0.2s ease; }
 
-        /* --- Tactical map --- */
-        #routePath {
-            stroke-dasharray: 400;
-            stroke-dashoffset: 400;
-            filter: drop-shadow(0 0 3px rgba(0,230,118,0.5));
+        /* --- Live Leaflet map (real OSM safe zones) --- */
+        #leafletMap { width: 100%; height: 100%; background: #0C1017; z-index: 0; }
+        /* Dark, tactical tint over the OSM tiles so they match the UI */
+        .leaflet-tile-pane { filter: brightness(0.85) contrast(1.05); }
+        .leaflet-container { background: #0C1017; font-family: 'Inter', sans-serif; }
+        .leaflet-control-attribution {
+            background: rgba(10,12,16,0.7) !important; color: #78909C !important;
+            font-size: 8px !important; backdrop-filter: blur(4px);
         }
-        .map-ring { animation: mapPing 3s ease-out infinite; transform-box: fill-box; transform-origin: center; }
-        .map-ring.d2 { animation-delay: 1s; }
-        .map-ring.d3 { animation-delay: 2s; }
-        @keyframes mapPing {
-            0%   { r: 4px;  opacity: 0.55; }
-            100% { r: 46px; opacity: 0; }
+        .leaflet-control-attribution a { color: #78909C !important; }
+        .leaflet-control-zoom a {
+            background: rgba(19,23,32,0.92) !important; color: #ECEFF1 !important;
+            border-color: #2C3545 !important;
         }
-        .map-dot-travel { offset-path: path('M64,116 C 150,96 200,66 268,40'); animation: travel 3.2s linear infinite; }
-        @keyframes travel { to { offset-distance: 100%; } }
-        .pin-you   { animation: pinFloat 2.6s ease-in-out infinite; }
-        @keyframes pinFloat { 50% { transform: translate(-50%,-56%); } }
+        .leaflet-bar { border-color: #2C3545 !important; }
+
+        /* "You" marker — pulsing crimson dot */
+        .you-marker { position: relative; }
+        .you-marker .you-core {
+            width: 14px; height: 14px; border-radius: 50%; background: var(--crimson);
+            border: 2px solid #fff; box-shadow: 0 0 12px rgba(255,51,102,0.9);
+        }
+        .you-marker .you-ping {
+            position: absolute; inset: -3px; border-radius: 50%;
+            border: 2px solid rgba(255,51,102,0.6); animation: youPing 2.4s ease-out infinite;
+        }
+        @keyframes youPing { 0% { transform: scale(1); opacity: 0.7; } 100% { transform: scale(3.4); opacity: 0; } }
+
+        /* Safe-zone markers — colored circular chips with a Material icon */
+        .zone-marker {
+            display: flex; align-items: center; justify-content: center;
+            width: 30px; height: 30px; border-radius: 50%;
+            border: 2px solid rgba(255,255,255,0.55); color: #fff;
+            box-shadow: 0 0 12px rgba(0,0,0,0.5); font-size: 17px;
+        }
+        .zone-marker .material-icons { font-size: 17px; }
+        .zone-marker.z-police   { background: rgba(255,51,102,0.92); box-shadow: 0 0 14px rgba(255,51,102,0.6); }
+        .zone-marker.z-hospital { background: rgba(0,230,118,0.90);  box-shadow: 0 0 14px rgba(0,230,118,0.5); }
+        .zone-marker.z-fire     { background: rgba(255,160,0,0.92);  box-shadow: 0 0 14px rgba(255,160,0,0.5); }
+        .zone-marker.z-public   { background: rgba(120,144,156,0.92); }
+        .zone-marker.is-target  { transform: scale(1.18); border-color:#fff; }
+
+        /* Ranked safe-zone list */
+        .zone-row {
+            display: flex; align-items: center; gap: 10px; width: 100%;
+            padding: 8px 10px; border-radius: 12px; border: 1px solid #2C3545;
+            background: rgba(19,23,32,0.6); cursor: pointer; text-align: left;
+            transition: border-color .15s ease, background .15s ease, transform .1s ease;
+        }
+        .zone-row:hover { border-color: #3A4658; background: rgba(30,36,48,0.9); }
+        .zone-row:active { transform: scale(0.99); }
+        .zone-row.is-target { border-color: var(--crimson); background: rgba(255,51,102,0.10); }
+        .zone-ico {
+            flex: none; width: 30px; height: 30px; border-radius: 9px;
+            display: flex; align-items: center; justify-content: center; color: #fff;
+        }
+        .zone-ico .material-icons { font-size: 17px; }
+        .leaflet-routeline { filter: drop-shadow(0 0 3px rgba(0,230,118,0.6)); }
     </style>
 </head>
 <body class="flex flex-col relative" id="appBody">
@@ -313,53 +403,37 @@
             </div>
         </div>
 
-        <!-- Live Tactical Map -->
-        <div class="relative rounded-2xl overflow-hidden border border-borderGray bg-[#0C1017]" style="height:150px" id="mapCard">
-            <svg viewBox="0 0 320 150" preserveAspectRatio="xMidYMid slice" class="absolute inset-0 w-full h-full">
-                <defs>
-                    <pattern id="mapGrid" width="26" height="26" patternUnits="userSpaceOnUse">
-                        <path d="M26 0H0V26" fill="none" stroke="rgba(120,144,156,0.10)" stroke-width="1"/>
-                    </pattern>
-                    <linearGradient id="routeGrad" x1="0" y1="0" x2="1" y2="0">
-                        <stop offset="0%"  stop-color="#00E676"/>
-                        <stop offset="100%" stop-color="#FFA000"/>
-                    </linearGradient>
-                </defs>
-                <rect width="320" height="150" fill="url(#mapGrid)"/>
-                <!-- radar rings around user -->
-                <circle class="map-ring"    cx="64" cy="116" r="4" fill="none" stroke="rgba(255,51,102,0.5)" stroke-width="1.5"/>
-                <circle class="map-ring d2" cx="64" cy="116" r="4" fill="none" stroke="rgba(255,51,102,0.4)" stroke-width="1.5"/>
-                <circle class="map-ring d3" cx="64" cy="116" r="4" fill="none" stroke="rgba(255,51,102,0.3)" stroke-width="1.5"/>
-                <!-- route -->
-                <path id="routePath" d="M64,116 C 150,96 200,66 268,40" fill="none" stroke="url(#routeGrad)" stroke-width="2.5" stroke-linecap="round"/>
-                <circle class="map-dot-travel" r="2.5" fill="#ECEFF1"/>
-            </svg>
+        <!-- Live Map — real OpenStreetMap safe zones near you -->
+        <div class="relative rounded-2xl overflow-hidden border border-borderGray bg-[#0C1017]" style="height:230px" id="mapCard">
+            <div id="leafletMap" class="absolute inset-0"></div>
 
-            <!-- overlay pins -->
-            <div class="pin-you absolute" style="left:20%; top:77.3%; transform:translate(-50%,-50%)">
-                <span class="live-dot block"></span>
+            <!-- HUD chrome (sits above the map, click-through) -->
+            <div class="absolute top-2 left-3 z-[500] flex items-center gap-1.5 text-[9px] font-mono text-crimsonRed font-bold pointer-events-none">
+                <span class="live-dot" style="background:var(--crimson)"></span>
+                <span id="mapHudLabel">LOCATING…</span>
             </div>
-            <div class="absolute text-[8px] font-mono text-mutedSlate" style="left:20%; top:88%; transform:translate(-50%,0)">YOU</div>
-
-            <div class="absolute" style="left:83.75%; top:26.6%; transform:translate(-50%,-50%)">
-                <div class="w-7 h-7 rounded-full bg-crimsonRed/90 border border-white/40 flex items-center justify-center shadow-[0_0_14px_rgba(255,51,102,0.6)]">
-                    <span class="material-icons text-white text-sm">local_police</span>
-                </div>
-            </div>
-
-            <!-- HUD chrome -->
-            <div class="absolute top-2 left-3 flex items-center gap-1.5 text-[9px] font-mono text-crimsonRed font-bold">
-                <span class="live-dot" style="background:var(--crimson)"></span> LIVE ROUTE
-            </div>
-            <div class="absolute bottom-2 left-3 right-3 flex items-end justify-between gap-2">
-                <div class="min-w-0">
-                    <p class="text-[8px] text-mutedSlate uppercase tracking-wider">Safe Zone</p>
+            <div class="absolute bottom-2 left-3 right-3 z-[500] flex items-end justify-between gap-2 pointer-events-none">
+                <div class="min-w-0 bg-black/55 backdrop-blur px-2 py-1 rounded-md border border-borderGray">
+                    <p class="text-[8px] text-mutedSlate uppercase tracking-wider">Nearest Safe Zone</p>
                     <p class="text-[11px] font-bold text-iceWhite truncate" id="mapZoneName">Locating…</p>
                 </div>
-                <div class="text-right shrink-0 bg-black/50 backdrop-blur px-2 py-1 rounded-md border border-borderGray hidden" id="mapEtaWrap">
+                <div class="text-right shrink-0 bg-black/55 backdrop-blur px-2 py-1 rounded-md border border-borderGray hidden" id="mapEtaWrap">
                     <p class="text-[8px] text-mutedSlate uppercase tracking-wider">ETA</p>
                     <p class="text-[11px] font-mono font-bold text-safetyGreen" id="mapEta">—</p>
                 </div>
+            </div>
+        </div>
+
+        <!-- Ranked safe-zone list (real, from OpenStreetMap) -->
+        <div class="mt-3 flex flex-col gap-2" id="zonePanel">
+            <div class="flex items-center justify-between px-1">
+                <p class="text-[10px] font-mono uppercase tracking-wider text-mutedSlate flex items-center gap-1.5">
+                    <span class="material-icons text-[13px]">verified_user</span> Nearest Safe Zones
+                </p>
+                <p class="text-[9px] font-mono text-mutedSlate" id="zoneSource">OpenStreetMap · live</p>
+            </div>
+            <div class="flex flex-col gap-2 max-h-[168px] overflow-y-auto pr-1" id="zoneList">
+                <div class="text-[11px] text-mutedSlate font-mono px-1 py-2" id="zoneListMsg">Awaiting location…</div>
             </div>
         </div>
 
@@ -373,6 +447,17 @@
             <span class="material-icons">verified_user</span>
             Resolve Incident
         </button>
+    </div>
+
+    <!-- On-device Gemma status (visible on the dead screen) -->
+    <div class="dark-status" id="darkStatus">
+        <div class="ds-pill" id="dsPill">
+            <span class="ds-dot"></span>
+            <span class="ds-title">ON-DEVICE&nbsp;GEMMA</span>
+            <span class="ds-model" id="dsModel">connecting…</span>
+            <span class="ds-count" id="dsCount">0</span>
+        </div>
+        <div class="ds-activity" id="dsActivity">Booting on-device brain — no data leaves this phone</div>
     </div>
 
     <!-- Dead Screen Overlay Hint -->
